@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Inwentaryzacja</title>
+  <link rel="manifest" href="manifest.json" />
+  <link rel="icon" href="icons/icon-192.png" type="image/png" />
+  <meta name="theme-color" content="#007bff" />
+</head>
+<body>
+  <h1>Inwentaryzacja – Aplikacja PWA</h1>
+  <p>Aplikacja została poprawnie załadowana.</p>
+
+  <script>
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker
+        .register('sw.js')
+        .then(() => console.log('✅ Service Worker zarejestrowany!'))
+        .catch(error => console.error('❌ Błąd SW:', error));
+    }
+  </script>
+</body>
+</html>
