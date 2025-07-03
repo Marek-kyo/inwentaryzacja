@@ -5,9 +5,7 @@ const urlsToCache = [
   "/manifest.json",
   "/sw.js",
   "/icons/icon-192.png",
-  "/icons/icon-512.png",
-  "https://cdnjs.cloudflare.com/ajax/libs/dexie/3.2.2/dexie.min.js",
-  "https://cdnjs.cloudflare.com/ajax/libs/peerjs/1.4.7/peerjs.min.js"
+  "/icons/icon-512.png"
 ];
 
 self.addEventListener("install", event => {
