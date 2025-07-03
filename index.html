@@ -1,24 +1,616 @@
-<!DOCTYPE html>
+<script type="text/javascript">
+        var gk_isXlsx = false;
+        var gk_xlsxFileLookup = {};
+        var gk_fileData = {};
+        function filledCell(cell) {
+          return cell !== '' && cell != null;
+        }
+        function loadFileData(filename) {
+        if (gk_isXlsx && gk_xlsxFileLookup[filename]) {
+            try {
+                var workbook = XLSX.read(gk_fileData[filename], { type: 'base64' });
+                var firstSheetName = workbook.SheetNames[0];
+                var worksheet = workbook.Sheets[firstSheetName];
+
+                // Convert sheet to JSON to filter blank rows
+                var jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1, blankrows: false, defval: '' });
+                // Filter out blank rows (rows where all cells are empty, null, or undefined)
+                var filteredData = jsonData.filter(row => row.some(filledCell));
+
+                // Heuristic to find the header row by ignoring rows with fewer filled cells than the next row
+                var headerRowIndex = filteredData.findIndex((row, index) =>
+                  row.filter(filledCell).length >= filteredData[index + 1]?.filter(filledCell).length
+                );
+                // Fallback
+                if (headerRowIndex === -1 || headerRowIndex > 25) {
+                  headerRowIndex = 0;
+                }
+
+                // Convert filtered JSON back to CSV
+                var csv = XLSX.utils.aoa_to_sheet(filteredData.slice(headerRowIndex)); // Create a new sheet from filtered array of arrays
+                csv = XLSX.utils.sheet_to_csv(csv, { header: 1 });
+                return csv;
+            } catch (e) {
+                console.error(e);
+                return "";
+            }
+        }
+        return gk_fileData[filename] || "";
+        }
+        </script><!DOCTYPE html>
 <html lang="pl">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Inwentaryzacja</title>
-  <link rel="manifest" href="manifest.json" />
-  <link rel="icon" href="icons/icon-192.png" type="image/png" />
-  <meta name="theme-color" content="#007bff" />
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Inwentaryzacja</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #f0f0f0;
+        }
+        #captureForm, #itemsList, #peerSection {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }
+        input, textarea, select {
+            display: block;
+            width: 100%;
+            margin-bottom: 10px;
+            padding: 8px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            box-sizing: border-box;
+        }
+        button {
+            background-color: #007bff;
+            color: white;
+            padding: 10px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            width: 100%;
+            margin-bottom: 10px;
+        }
+        button:hover {
+            background-color: #0056b3;
+        }
+        .delete-btn {
+            background-color: #dc3545;
+            margin-top: 10px;
+            padding: 8px;
+        }
+        .delete-btn:hover {
+            background-color: #c82333;
+        }
+        #preview {
+            max-width: 100%;
+            height: auto;
+            margin-bottom: 10px;
+        }
+        .item {
+            border-bottom: 1px solid #ddd;
+            padding: 10px 0;
+        }
+        .item img {
+            max-width: 100px;
+            height: auto;
+            cursor: pointer;
+        }
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.8);
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+        }
+        .modal img {
+            max-width: 90%;
+            max-height: 90%;
+        }
+        .modal-close {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            color: white;
+            font-size: 24px;
+            cursor: pointer;
+        }
+        #filterSection {
+            margin-bottom: 10px;
+        }
+        #peerSection {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+        }
+        #peerId {
+            font-weight: bold;
+        }
+        #connectedPeers {
+            margin-top: 10px;
+        }
+        .peer-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 5px 0;
+        }
+        .peer-delete-btn {
+            background-color: #dc3545;
+            padding: 5px 10px;
+            font-size: 14px;
+        }
+        .peer-delete-btn:hover {
+            background-color: #c82333;
+        }
+        #adminSection {
+            margin-top: 10px;
+        }
+        /* Responsywność dla telefonów */
+        @media (max-width: 600px) {
+            body {
+                padding: 10px;
+            }
+            #peerSection, #captureForm, #itemsList {
+                padding: 15px;
+            }
+            button {
+                padding: 8px;
+                font-size: 16px;
+            }
+            input, select, textarea {
+                font-size: 16px;
+            }
+        }
+    </style>
+
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icons/icon-192.png" type="image/png">
+<meta name="theme-color" content="#007bff">
+
 </head>
 <body>
-  <h1>Inwentaryzacja – Aplikacja PWA</h1>
-  <p>Aplikacja została poprawnie załadowana.</p>
+    <div id="peerSection">
+        <h2>Połączenie z adminem</h2>
+        <p>Twoje ID Peer: <span id="peerId"></span></p>
+        <div id="adminSection">
+            <input type="password" id="adminPassword" placeholder="Wprowadź hasło admina">
+            <button type="button" onclick="setAdmin()">Zostań adminem</button>
+        </div>
+        <button id="connectToAdminBtn" type="button" onclick="connectToAdmin()">Połącz z adminem</button>
+        <button id="resetAdminBtn" type="button" onclick="resetAdmin()" style="display: none;">Zresetuj rolę admina</button>
+        <div id="connectedPeers"></div>
+    </div>
 
-  <script>
-    if ('serviceWorker' in navigator) {
-      navigator.serviceWorker
-        .register('sw.js')
-        .then(() => console.log('✅ Service Worker zarejestrowany!'))
-        .catch(error => console.error('❌ Błąd SW:', error));
-    }
-  </script>
+    <form id="captureForm" style="display: none;">
+        <h2>Dodaj nowy asortyment</h2>
+        <input type="file" id="photoInput" accept="image/*" capture="camera">
+        <img id="preview" style="display: none;">
+        <input type="text" id="nameInput" placeholder="Nazwa asortymentu">
+        <input type="text" id="locationInput" placeholder="Miejsce składowania">
+        <input type="number" id="quantityInput" placeholder="Ilość">
+        <select id="typeInput">
+            <option value="" disabled selected>Wybierz rodzaj</option>
+            <option value="Kruszywo granitowe">Kruszywo granitowe</option>
+            <option value="Grys skaleniowo-kwarcowy">Grys skaleniowo-kwarcowy</option>
+        </select>
+        <textarea id="commentInput" placeholder="Komentarz"></textarea>
+        <button type="button" onclick="saveItem()">Zapisz</button>
+    </form>
+
+    <div id="itemsList">
+        <h2>Lista asortymentu</h2>
+        <div id="filterSection">
+            <label for="filterType">Filtruj po rodzaju:</label>
+            <select id="filterType" onchange="displayItems()">
+                <option value="">Wszystkie</option>
+                <option value="Kruszywo granitowe">Kruszywo granitowe</option>
+                <option value="Grys skaleniowo-kwarcowy">Grys skaleniowo-kwarcowy</option>
+            </select>
+        </div>
+        <div id="items"></div>
+    </div>
+
+    <!-- Modal do powiększania zdjęć -->
+    <div id="photoModal" class="modal">
+        <span class="modal-close" onclick="closeModal()">×</span>
+        <img id="modalImage">
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/dexie/3.2.2/dexie.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/peerjs/1.4.7/peerjs.min.js"></script>
+    <script>
+        // Inicjalizacja bazy danych IndexedDB
+        const db = new Dexie("InventoryDB");
+        db.version(1).stores({
+            items: '++id,name,location,quantity,comment,photo'
+        });
+        db.version(2).stores({
+            items: '++id,name,location,quantity,comment,photo,timestamp'
+        }).upgrade(async (tx) => {
+            await tx.table('items').toCollection().modify(item => {
+                item.timestamp = item.timestamp || Date.now();
+            });
+        });
+        db.version(3).stores({
+            items: '++id,name,location,quantity,comment,photo,timestamp,type'
+        }).upgrade(async (tx) => {
+            await tx.table('items').toCollection().modify(item => {
+                item.type = item.type || 'Kruszywo granitowe';
+            });
+        });
+
+        // Stałe hasło admina (można zmienić)
+        const ADMIN_PASSWORD = 'admin123';
+        // Określenie, czy urządzenie jest adminem
+        let isAdmin = localStorage.getItem('isAdmin') === 'true';
+        const ADMIN_PEER_ID = 'admin-peer';
+
+        // Generowanie lub pobieranie ID Peera
+        let myPeerId = isAdmin ? ADMIN_PEER_ID : localStorage.getItem('myPeerId');
+        if (!myPeerId && !isAdmin) {
+            myPeerId = 'client-' + Math.random().toString(36).substr(2, 9);
+            localStorage.setItem('myPeerId', myPeerId);
+        }
+
+        // Inicjalizacja WebRTC
+        let peer = new Peer(myPeerId);
+        let connections = [];
+
+        // Funkcja aktualizująca listę podłączonych peerów (przeniesiona na początek)
+        function updateConnectedPeersList() {
+            console.log('Wywołano updateConnectedPeersList');
+            const connectedPeersDiv = document.getElementById('connectedPeers');
+            const connectedAdmin = localStorage.getItem('connectedAdmin');
+            connectedPeersDiv.innerHTML = '<h3>Podłączeni użytkownicy:</h3>';
+            if (!connectedAdmin) {
+                connectedPeersDiv.innerHTML += '<p>Brak połączenia z adminem.</p>';
+            } else {
+                const ul = document.createElement('ul');
+                const li = document.createElement('li');
+                li.className = 'peer-item';
+                li.innerHTML = `
+                    ${connectedAdmin}
+                    <button class="peer-delete-btn" onclick="removeAdmin()">Rozłącz</button>
+                `;
+                ul.appendChild(li);
+                connectedPeersDiv.appendChild(ul);
+            }
+        }
+
+        peer.on('open', (id) => {
+            console.log('Moje ID Peer: ' + id);
+            document.getElementById('peerId').textContent = id;
+            // Pokaz odpowiednie elementy interfejsu
+            document.getElementById('captureForm').style.display = isAdmin ? 'block' : 'none';
+            document.getElementById('adminSection').style.display = isAdmin ? 'none' : 'block';
+            document.getElementById('connectToAdminBtn').style.display = isAdmin ? 'none' : 'block';
+            document.getElementById('resetAdminBtn').style.display = isAdmin ? 'block' : 'none';
+            console.log('isAdmin:', isAdmin, 'adminSection display:', document.getElementById('adminSection').style.display);
+            // Odtwarzanie połączenia z adminem dla klientów
+            if (!isAdmin) {
+                const savedAdmin = localStorage.getItem('connectedAdmin');
+                if (savedAdmin === ADMIN_PEER_ID) {
+                    connectToAdmin();
+                }
+            }
+            updateConnectedPeersList();
+        });
+
+        peer.on('connection', (conn) => {
+            connections.push(conn);
+            updateConnectedPeersList();
+            conn.on('data', async (data) => {
+                console.log('Otrzymano dane:', data);
+                if (data.type === 'newItem') {
+                    await saveItemToDB(data.item);
+                    displayItems();
+                } else if (data.type === 'deleteItem') {
+                    await deleteItemFromDB(data.id);
+                    displayItems();
+                } else if (data.type === 'requestInitialSync') {
+                    // Admin wysyła pełną listę elementów
+                    if (isAdmin) {
+                        const items = await db.items.toArray();
+                        conn.send({ type: 'initialSync', items });
+                    }
+                } else if (data.type === 'initialSync') {
+                    // Klienci zapisują otrzymane elementy
+                    for (const item of data.items) {
+                        const existingItem = await db.items.get(item.id);
+                        if (!existingItem) {
+                            await saveItemToDB(item);
+                        }
+                    }
+                    displayItems();
+                }
+            });
+            conn.on('open', () => {
+                // Klienci wysyłają prośbę o synchronizację początkową
+                if (!isAdmin) {
+                    conn.send({ type: 'requestInitialSync' });
+                }
+            });
+            conn.on('close', () => {
+                connections = connections.filter(c => c !== conn);
+                updateConnectedPeersList();
+            });
+        });
+
+        // Funkcja do ustawiania admina
+        function setAdmin() {
+            const password = document.getElementById('adminPassword').value;
+            if (password === ADMIN_PASSWORD) {
+                localStorage.setItem('isAdmin', 'true');
+                isAdmin = true;
+                localStorage.removeItem('myPeerId'); // Reset ID Peera
+                myPeerId = ADMIN_PEER_ID;
+                // Zniszcz istniejące połączenie PeerJS
+                peer.destroy();
+                // Inicjalizuj nowe połączenie z ID admina
+                peer = new Peer(myPeerId);
+                peer.on('open', (id) => {
+                    console.log('Moje ID Peer: ' + id);
+                    document.getElementById('peerId').textContent = id;
+                    document.getElementById('captureForm').style.display = 'block';
+                    document.getElementById('adminSection').style.display = 'none';
+                    document.getElementById('connectToAdminBtn').style.display = 'none';
+                    document.getElementById('resetAdminBtn').style.display = 'block';
+                    updateConnectedPeersList();
+                });
+                peer.on('connection', (conn) => {
+                    connections.push(conn);
+                    updateConnectedPeersList();
+                    conn.on('data', async (data) => {
+                        if (data.type === 'requestInitialSync') {
+                            const items = await db.items.toArray();
+                            conn.send({ type: 'initialSync', items });
+                        }
+                    });
+                    conn.on('close', () => {
+                        connections = connections.filter(c => c !== conn);
+                        updateConnectedPeersList();
+                    });
+                });
+                alert('Ustawiono urządzenie jako admin.');
+            } else {
+                alert('Nieprawidłowe hasło.');
+            }
+        }
+
+        // Funkcja do resetowania roli admina
+        function resetAdmin() {
+            localStorage.removeItem('isAdmin');
+            isAdmin = false;
+            localStorage.removeItem('myPeerId');
+            myPeerId = 'client-' + Math.random().toString(36).substr(2, 9);
+            localStorage.setItem('myPeerId', myPeerId);
+            peer.destroy();
+            peer = new Peer(myPeerId);
+            peer.on('open', (id) => {
+                console.log('Moje ID Peer: ' + id);
+                document.getElementById('peerId').textContent = id;
+                document.getElementById('captureForm').style.display = 'none';
+                document.getElementById('adminSection').style.display = 'block';
+                document.getElementById('connectToAdminBtn').style.display = 'block';
+                document.getElementById('resetAdminBtn').style.display = 'none';
+                updateConnectedPeersList();
+            });
+            peer.on('connection', (conn) => {
+                connections.push(conn);
+                updateConnectedPeersList();
+                conn.on('data', async (data) => {
+                    if (data.type === 'newItem') {
+                        await saveItemToDB(data.item);
+                        displayItems();
+                    } else if (data.type === 'deleteItem') {
+                        await deleteItemFromDB(data.id);
+                        displayItems();
+                    } else if (data.type === 'initialSync') {
+                        for (const item of data.items) {
+                            const existingItem = await db.items.get(item.id);
+                            if (!existingItem) {
+                                await saveItemToDB(item);
+                            }
+                        }
+                        displayItems();
+                    }
+                });
+                conn.on('open', () => {
+                    if (!isAdmin) {
+                        conn.send({ type: 'requestInitialSync' });
+                    }
+                });
+                conn.on('close', () => {
+                    connections = connections.filter(c => c !== conn);
+                    updateConnectedPeersList();
+                });
+            });
+            alert('Zresetowano rolę admina. Urządzenie jest teraz klientem.');
+        }
+
+        // Funkcja do formatowania daty
+        function formatDate(timestamp) {
+            const date = new Date(timestamp);
+            const day = String(date.getDate()).padStart(2, '0');
+            const month = String(date.getMonth() + 1).padStart(2, '0');
+            const year = date.getFullYear();
+            const hours = String(date.getHours()).padStart(2, '0');
+            const minutes = String(date.getMinutes()).padStart(2, '0');
+            const seconds = String(date.getSeconds()).padStart(2, '0');
+            return `${day}-${month}-${year} ${hours}:${minutes}:${seconds}`;
+        }
+
+        // Funkcja do zapisywania elementu (tylko dla admina)
+        async function saveItem() {
+            if (!isAdmin) return;
+            const name = document.getElementById('nameInput').value;
+            const location = document.getElementById('locationInput').value;
+            const quantity = document.getElementById('quantityInput').value;
+            const type = document.getElementById('typeInput').value;
+            const comment = document.getElementById('commentInput').value;
+            const photoInput = document.getElementById('photoInput');
+            let photo = '';
+
+            if (photoInput.files[0]) {
+                photo = await new Promise((resolve) => {
+                    const reader = new FileReader();
+                    reader.onload = (e) => resolve(e.target.result);
+                    reader.readAsDataURL(photoInput.files[0]);
+                });
+            }
+
+            const item = { name, location, quantity, type, comment, photo, timestamp: Date.now() };
+            const id = await saveItemToDB(item);
+            item.id = id;
+            broadcastItem({ type: 'newItem', item });
+            displayItems();
+
+            // Czyszczenie formularza
+            document.getElementById('captureForm').reset();
+            document.getElementById('preview').style.display = 'none';
+        }
+
+        // Zapis do bazy danych
+        async function saveItemToDB(item) {
+            return await db.items.add(item);
+        }
+
+        // Usuwanie elementu z bazy danych (tylko dla admina)
+        async function deleteItem(id) {
+            if (!isAdmin) return;
+            await deleteItemFromDB(id);
+            broadcastItem({ type: 'deleteItem', id });
+            displayItems();
+        }
+
+        async function deleteItemFromDB(id) {
+            await db.items.delete(id);
+        }
+
+        // Rozsyłanie elementu lub usunięcia do innych użytkowników
+        function broadcastItem(data) {
+            connections.forEach(conn => {
+                if (conn.open) {
+                    conn.send(data);
+                }
+            });
+        }
+
+        // Wyświetlanie podglądu zdjęcia (tylko dla admina)
+        document.getElementById('photoInput').addEventListener('change', (e) => {
+            if (!isAdmin) return;
+            const file = e.target.files[0];
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    const preview = document.getElementById('preview');
+                    preview.src = e.target.result;
+                    preview.style.display = 'block';
+                };
+                reader.readAsDataURL(file);
+            }
+        });
+
+        // Wyświetlanie listy elementów
+        async function displayItems() {
+            const filterType = document.getElementById('filterType').value;
+            let items;
+            if (filterType) {
+                items = await db.items.where('type').equals(filterType).toArray();
+                items = items.sort((a, b) => b.timestamp - a.timestamp);
+            } else {
+                items = await db.items.orderBy('timestamp').reverse().toArray();
+            }
+            const itemsDiv = document.getElementById('items');
+            itemsDiv.innerHTML = '';
+            items.forEach(item => {
+                const itemDiv = document.createElement('div');
+                itemDiv.className = 'item';
+                itemDiv.innerHTML = `
+                    ${item.photo ? `<img src="${item.photo}" onclick="openModal('${item.photo}')">` : ''}
+                    <p><strong>Nazwa:</strong> ${item.name}</p>
+                    <p><strong>Miejsce:</strong> ${item.location}</p>
+                    <p><strong>Ilość:</strong> ${item.quantity}</p>
+                    <p><strong>Rodzaj:</strong> ${item.type}</p>
+                    <p><strong>Data dodania:</strong> ${formatDate(item.timestamp)}</p>
+                    <p><strong>Komentarz:</strong> ${item.comment}</p>
+                    ${isAdmin ? `<button class="delete-btn" onclick="deleteItem(${item.id})">Usuń</button>` : ''}
+                `;
+                itemsDiv.appendChild(itemDiv);
+            });
+        }
+
+        // Funkcje do obsługi modalnego okna
+        function openModal(imageSrc) {
+            const modal = document.getElementById('photoModal');
+            const modalImage = document.getElementById('modalImage');
+            modalImage.src = imageSrc;
+            modal.style.display = 'flex';
+        }
+
+        function closeModal() {
+            const modal = document.getElementById('photoModal');
+            modal.style.display = 'none';
+        }
+
+        // Zamykanie modalu po kliknięciu poza zdjęciem
+        document.getElementById('photoModal').addEventListener('click', (e) => {
+            if (e.target === document.getElementById('photoModal')) {
+                closeModal();
+            }
+        });
+
+        // Połączenie z adminem (tylko dla klientów)
+        async function connectToAdmin() {
+            if (isAdmin) return;
+            const peerId = ADMIN_PEER_ID;
+            const conn = peer.connect(peerId);
+            connections.push(conn);
+            conn.on('open', () => {
+                console.log('Połączono z adminem: ' + peerId);
+                alert('Połączono z adminem');
+                localStorage.setItem('connectedAdmin', peerId);
+                updateConnectedPeersList();
+            });
+            conn.on('error', (err) => {
+                console.error('Błąd połączenia z adminem: ' + peerId, err);
+                alert('Nie udało się połączyć z adminem');
+            });
+            conn.on('close', () => {
+                connections = connections.filter(c => c !== conn);
+                updateConnectedPeersList();
+            });
+        }
+
+        // Usuwanie połączenia z adminem
+        function removeAdmin() {
+            localStorage.removeItem('connectedAdmin');
+            connections = connections.filter(conn => conn.peer !== ADMIN_PEER_ID);
+            updateConnectedPeersList();
+        }
+
+        // Inicjalne wyświetlenie elementów
+        displayItems();
+        updateConnectedPeersList();
+    </script>
+
+<script>
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('sw.js')
+      .then(() => console.log('✅ Service Worker zarejestrowany!'))
+      .catch(error => console.error('❌ Błąd SW:', error));
+  }
+</script>
+
 </body>
 </html>
